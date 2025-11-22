@@ -1,0 +1,4 @@
+﻿field,description,possible_values
+seg_id,Unique identifier for a street segment in the City's pavement management program,
+pci,The street segment's Pavement Condition Index score,"0-100, or blank"
+pci_description,"The category of the street segment's PCI score. Categories include: Good (PCI 100 - 85), Satisfactory (PCI 84-70), Fair (PCI 69-55), Poor (PCI 54-40), Very Poor (PCI 39-25), Serious (PCI 24-10), Failed (PCI < 10).","Failed, Fair, Good, Poor, Satisfactory, Serious, Very Poor, or blank"

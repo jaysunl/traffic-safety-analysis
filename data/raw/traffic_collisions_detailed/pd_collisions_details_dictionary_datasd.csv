@@ -1,0 +1,23 @@
+﻿field,description,possible_values
+report_id,Collision report number,
+date_time,Date/time of collision,
+person_role,Description of person's role in the collision,"BICYCLIST, DRIVER, OTHER, PARKED VEHICLE OCCUPANT, PASSENGER, PEDESTRIAN"
+person_injury_lvl,Description of person's level of injury,"FATAL, NULL, PAIN, SEVERE, VISABLE"
+person_veh_type,Description of type of vehicle (categories defined by CHP) **,see list linked at https://data.sandiego.gov/datasets/police-collisions-details/
+veh_type,Description of type of vehicle **,"AUTOMOBILE, BICYCLE, FARM EQUIPMENT, LIGHT DUTY TRUCK, MOTORCYCLE, NULL, TRAILER, TRUCK, UNLISTED CONSTRUCTION EQUIPMENT"
+veh_make,Make of the vehicle,
+veh_model,Model of the vehicle,
+police_beat,San Diego Police beat,see list linked at https://data.sandiego.gov/datasets/police-beats/
+address_no_primary,"Street number of collision location, abstracted to block level",
+address_pd_primary,Direction of street in location,
+address_road_primary,Name of street,
+address_sfx_primary,Street type,
+address_pd_intersecting,"Direction of cross street, if collision at intersection",
+address_name_intersecting,"Street name, if collision at intersection",
+address_sfx_intersecting,"Street type, if collision at intersection",
+violation_section,Violation section for primary collision factor,
+violation_type,Violation type for primary collision factor,
+charge_desc,Violation section description for primary collision factor,
+injured,Number of people injured in collision,
+killed,Number of people killed in collision,
+hit_run_lvl,"Level of violation, if collision was a hit & run",Felony or Misdemeanor (Null if not a hit & run)

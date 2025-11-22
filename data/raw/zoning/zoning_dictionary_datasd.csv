@@ -1,0 +1,5 @@
+field,field_type,description,possible_values
+objectid,Integar,Unique identifier,
+zone_name,String,"Name applied to the geographic area(s) which comprise a specific type of zoning. For example, RS-17 is the zone name applied to areas where a specific type of residential zoning is in effect.",
+imp_date,String,"Date on which a zone change actually takes effect, or implements",
+ordnum,String,Number of the rezone ordinance,

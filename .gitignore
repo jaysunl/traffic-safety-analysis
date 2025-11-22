@@ -1,0 +1,19 @@
+*.DS_Store
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+__pycache__/
+*.pyc
+
+venv/
+env/
+.env
+
+.ipynb_checkpoints/
+
+.vscode/
+.idea/
+
+# ignore large data file(s), currently unused
+roads_datasd.geojson
