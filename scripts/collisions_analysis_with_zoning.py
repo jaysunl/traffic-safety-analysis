@@ -1,13 +1,15 @@
 """
 This script loads traffic collision data and paving segment data, matches collisions to
 paving segments, and then joins the paving segments to zoning districts using spatial
-joins. It then aggregates the collision statistics by zoning district and generates
-an output file with the results.
+joins. It performs comprehensive analysis including zone type categorization, density
+analysis, detailed collision patterns, violation type analysis, and generates
+visualizations including a severity map.
 
 This script uses the following files:
 - ./data/raw/streets_repair_line_segments/sd_paving_segs_datasd.csv
 - ./data/raw/streets_repair_line_segments/sd_paving_segs_datasd.geojson
 - ./data/raw/traffic_collisions_basic/pd_collisions_datasd.csv
+- ./data/raw/traffic_collisions_detailed/pd_collisions_details_datasd.csv
 - ./data/raw/zoning/zoning_datasd.geojson
 """
 
@@ -15,14 +17,18 @@ import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
 from typing import Optional, Tuple
 
 FILES = {
     'paving': './data/raw/streets_repair_line_segments/sd_paving_segs_datasd.csv',
     'paving_geojson': './data/raw/streets_repair_line_segments/sd_paving_segs_datasd.geojson',
     'collisions': './data/raw/traffic_collisions_basic/pd_collisions_datasd.csv',
+    'collisions_detailed': './data/raw/traffic_collisions_detailed/pd_collisions_details_datasd.csv',
     'zoning_geojson': './data/raw/zoning/zoning_datasd.geojson',
     'output_data': './data/processed/collisions_analysis_with_zoning.csv',
+    'output_visualization': './data/processed/collisions_analysis_with_zoning_visualization.png',
+    'output_map': './data/processed/collisions_analysis_with_zoning_map.png',
     'output_debug': './misc/debug_unmatched_collisions.csv'
 }
 
@@ -56,6 +62,25 @@ SUFFIX_MAP = {
     'EXTENSION': 'EX',
     'VALLEY': 'VLY',
     'WALK': 'WK'
+}
+
+ZONE_TYPE_MAP = {
+    'RS': 'Residential Single-Family',
+    'RM': 'Residential Multi-Family',
+    'CC': 'Commercial',
+    'CN': 'Commercial Neighborhood',
+    'CCPD': 'Commercial Planned Development',
+    'IL': 'Industrial Limited',
+    'IG': 'Industrial General',
+    'AR': 'Agricultural',
+    'AG': 'Agricultural',
+    'OP': 'Open Space',
+    'EMX': 'Employment Mixed Use',
+    'CUPD': 'Community Plan Update',
+    'PD': 'Planned Development',
+    'SP': 'Special Purpose',
+    'MU': 'Mixed Use',
+    'MX': 'Mixed Use'
 }
 
 
@@ -345,22 +370,54 @@ def consolidate_matches(
     return all_matches
 
 
+def extract_zone_type(zone_name: str) -> str:
+    """
+    Extract zone type category from zone name.
+
+    Parameters
+    ----------
+    zone_name : str
+        Zone name (e.g., 'RS-1-7', 'CC-3-6').
+
+    Returns
+    -------
+    str
+        Zone type category or 'Unknown' if not found.
+    """
+    if pd.isna(zone_name) or zone_name == '':
+        return 'Unknown'
+    
+    zone_name = str(zone_name).strip()
+    
+    for prefix, category in ZONE_TYPE_MAP.items():
+        if zone_name.startswith(prefix):
+            return category
+    
+    if '-' in zone_name:
+        prefix = zone_name.split('-')[0]
+        if prefix in ZONE_TYPE_MAP:
+            return ZONE_TYPE_MAP[prefix]
+    
+    return 'Unknown'
+
+
 def load_zoning_data() -> Optional[gpd.GeoDataFrame]:
     """
     Load zoning GeoJSON and prepare for spatial operations.
 
-    Loads zoning polygons, sets CRS if missing, and reprojects to a projected
-    coordinate system suitable for spatial joins.
+    Loads zoning polygons, sets CRS if missing, reprojects to a projected
+    coordinate system, and calculates zone areas.
 
     Returns
     -------
     gpd.GeoDataFrame or None
-        Zoning polygons with geometry. Returns None if loading fails.
+        Zoning polygons with geometry and area calculations. Returns None if loading fails.
 
     Notes
     -----
     Attempts to reproject to EPSG:2230 (California State Plane Zone 6) or
     EPSG:32611 (UTM Zone 11N) for better spatial accuracy.
+    Calculates zone areas in square meters and square kilometers.
     """
     print("--- Loading Zoning Data ---")
     
@@ -380,6 +437,9 @@ def load_zoning_data() -> Optional[gpd.GeoDataFrame]:
                 continue
         else:
             print("Warning: Could not reproject zoning data. Using original CRS.")
+        
+        gdf_zoning['zone_area_m2'] = gdf_zoning.geometry.area
+        gdf_zoning['zone_area_km2'] = gdf_zoning['zone_area_m2'] / 1_000_000
         
         return gdf_zoning
     except Exception as e:
@@ -470,16 +530,230 @@ def join_segments_to_zoning(
     return gdf_joined[['roadsegid', 'zone_name', 'imp_date', 'ordnum']]
 
 
-def create_zoning_collision_analysis(
-    df_coll: pd.DataFrame,
+def calculate_zone_density(
+    df_zoning_stats: pd.DataFrame,
+    gdf_zoning: gpd.GeoDataFrame
+) -> pd.DataFrame:
+    """
+    Calculate crash density metrics per zone.
+
+    Parameters
+    ----------
+    df_zoning_stats : pd.DataFrame
+        Zone statistics with columns including 'zone_name', 'total_crashes', etc.
+    gdf_zoning : gpd.GeoDataFrame
+        Zoning polygons with area calculations.
+
+    Returns
+    -------
+    pd.DataFrame
+        Zone statistics with added density metrics.
+    """
+    print("--- Calculating Zone Density Metrics ---")
+    
+    zone_areas = gdf_zoning.groupby('zone_name').agg({
+        'zone_area_km2': 'sum',
+        'zone_area_m2': 'sum'
+    }).reset_index()
+    
+    df_with_density = pd.merge(df_zoning_stats, zone_areas, on='zone_name', how='left')
+    
+    df_with_density['crashes_per_km2'] = (
+        df_with_density['total_crashes'] / 
+        df_with_density['zone_area_km2'].replace(0, pd.NA)
+    )
+    df_with_density['injuries_per_km2'] = (
+        df_with_density['injured'] / 
+        df_with_density['zone_area_km2'].replace(0, pd.NA)
+    )
+    df_with_density['fatalities_per_km2'] = (
+        df_with_density['killed'] / 
+        df_with_density['zone_area_km2'].replace(0, pd.NA)
+    )
+    
+    print(f"Calculated density metrics for {df_with_density['zone_area_km2'].notna().sum()} zones")
+    
+    return df_with_density
+
+
+def analyze_detailed_collisions_by_zone(
+    df_collisions_detailed: pd.DataFrame,
     all_matches: pd.DataFrame,
     segment_zoning: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Aggregate collision statistics by zoning type and generate output.
+    Analyze detailed collision characteristics by zone.
 
-    Calculates crash counts, injuries, fatalities, and density metrics
-    for each zoning district.
+    Parameters
+    ----------
+    df_collisions_detailed : pd.DataFrame
+        Detailed collision data with person and vehicle information.
+    all_matches : pd.DataFrame
+        Collision-to-segment matches with columns ['report_id', 'roadsegid'].
+    segment_zoning : pd.DataFrame
+        Segment-to-zone mapping with columns ['roadsegid', 'zone_name'].
+
+    Returns
+    -------
+    pd.DataFrame
+        Detailed statistics by zone including vehicle types, person roles, injury levels.
+    """
+    print("--- Analyzing Detailed Collisions by Zone ---")
+    
+    df_detailed = df_collisions_detailed.copy()
+    df_detailed['date_time'] = pd.to_datetime(df_detailed['date_time'], errors='coerce')
+    date_mask = (
+        (df_detailed['date_time'] >= DATE_RANGE['start']) & 
+        (df_detailed['date_time'] <= DATE_RANGE['end'])
+    )
+    df_detailed = df_detailed[date_mask].copy()
+    
+    df_detailed = pd.merge(df_detailed, all_matches, on='report_id', how='inner')
+    df_detailed = pd.merge(df_detailed, segment_zoning, on='roadsegid', how='left')
+    df_detailed = df_detailed[df_detailed['zone_name'].notna()].copy()
+    
+    if df_detailed.empty:
+        return pd.DataFrame()
+    
+    detailed_stats = df_detailed.groupby('zone_name').agg({
+        'report_id': 'nunique',
+        'person_role': lambda x: x.value_counts().head(5).to_dict() if len(x.dropna()) > 0 else {},
+        'person_injury_lvl': lambda x: x.value_counts().head(5).to_dict() if len(x.dropna()) > 0 else {},
+        'veh_type': lambda x: x.value_counts().head(5).to_dict() if len(x.dropna()) > 0 else {},
+        'person_veh_type': lambda x: x.value_counts().head(5).to_dict() if len(x.dropna()) > 0 else {},
+        'hit_run_lvl': lambda x: (x.notna() & (x != '')).sum()
+    }).reset_index()
+    
+    detailed_stats.rename(columns={'report_id': 'unique_collisions'}, inplace=True)
+    
+    print(f"Analyzed detailed collisions for {len(detailed_stats)} zones")
+    
+    return detailed_stats
+
+
+def analyze_violations_by_zone(
+    df_collisions: pd.DataFrame,
+    all_matches: pd.DataFrame,
+    segment_zoning: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Analyze violation types by zone.
+
+    Parameters
+    ----------
+    df_collisions : pd.DataFrame
+        Collision data with violation information.
+    all_matches : pd.DataFrame
+        Collision-to-segment matches with columns ['report_id', 'roadsegid'].
+    segment_zoning : pd.DataFrame
+        Segment-to-zone mapping with columns ['roadsegid', 'zone_name'].
+
+    Returns
+    -------
+    pd.DataFrame
+        Violation statistics by zone.
+    """
+    print("--- Analyzing Violations by Zone ---")
+    
+    df_coll = df_collisions.copy()
+    df_coll['date_time'] = pd.to_datetime(df_coll['date_time'], errors='coerce')
+    date_mask = (
+        (df_coll['date_time'] >= DATE_RANGE['start']) & 
+        (df_coll['date_time'] <= DATE_RANGE['end'])
+    )
+    df_coll = df_coll[date_mask].copy()
+    
+    df_coll = pd.merge(df_coll, all_matches, on='report_id', how='inner')
+    df_coll = pd.merge(df_coll, segment_zoning, on='roadsegid', how='left')
+    df_coll = df_coll[df_coll['zone_name'].notna()].copy()
+    
+    violation_stats = df_coll.groupby('zone_name').agg({
+        'report_id': 'count',
+        'violation_section': lambda x: x.value_counts().head(5).to_dict() if len(x.dropna()) > 0 else {},
+        'charge_desc': lambda x: x.value_counts().head(5).to_dict() if len(x.dropna()) > 0 else {},
+        'hit_run_lvl': lambda x: (x.notna() & (x != '')).sum()
+    }).reset_index()
+    
+    violation_stats.rename(columns={
+        'report_id': 'total_crashes_viol',
+        'hit_run_lvl': 'hit_and_run_count'
+    }, inplace=True)
+    
+    violation_stats['hit_and_run_rate'] = (
+        violation_stats['hit_and_run_count'] / 
+        violation_stats['total_crashes_viol'].replace(0, pd.NA)
+    ) * 100
+    
+    print(f"Analyzed violations for {len(violation_stats)} zones")
+    
+    return violation_stats
+
+
+def create_zone_type_analysis(df_zoning_stats: pd.DataFrame) -> pd.DataFrame:
+    """
+    Analyze crash patterns by zone type category.
+
+    Parameters
+    ----------
+    df_zoning_stats : pd.DataFrame
+        Zone statistics with 'zone_name' column.
+
+    Returns
+    -------
+    pd.DataFrame
+        Aggregated statistics by zone type category.
+    """
+    print("--- Analyzing by Zone Type Category ---")
+    
+    df_with_type = df_zoning_stats.copy()
+    df_with_type['zone_type'] = df_with_type['zone_name'].apply(extract_zone_type)
+    
+    zone_type_stats = df_with_type.groupby('zone_type').agg({
+        'total_crashes': 'sum',
+        'injured': 'sum',
+        'killed': 'sum',
+        'segments_with_crashes': 'sum',
+        'total_segments': 'sum',
+        'zone_name': 'count'
+    }).reset_index()
+    
+    zone_type_stats.rename(columns={'zone_name': 'num_zones'}, inplace=True)
+    
+    zone_type_stats['crashes_per_zone'] = (
+        zone_type_stats['total_crashes'] / 
+        zone_type_stats['num_zones'].replace(0, pd.NA)
+    )
+    zone_type_stats['crashes_per_segment'] = (
+        zone_type_stats['total_crashes'] / 
+        zone_type_stats['total_segments'].replace(0, pd.NA)
+    )
+    zone_type_stats['injury_rate'] = (
+        zone_type_stats['injured'] / 
+        zone_type_stats['total_crashes'].replace(0, pd.NA)
+    )
+    zone_type_stats['fatality_rate'] = (
+        zone_type_stats['killed'] / 
+        zone_type_stats['total_crashes'].replace(0, pd.NA)
+    )
+    
+    zone_type_stats = zone_type_stats.sort_values('total_crashes', ascending=False)
+    
+    print(f"Analyzed {len(zone_type_stats)} zone type categories")
+    
+    return zone_type_stats
+
+
+def create_zoning_collision_analysis(
+    df_coll: pd.DataFrame,
+    all_matches: pd.DataFrame,
+    segment_zoning: pd.DataFrame,
+    gdf_zoning: gpd.GeoDataFrame
+) -> pd.DataFrame:
+    """
+    Aggregate collision statistics by zoning type and generate comprehensive output.
+
+    Calculates crash counts, injuries, fatalities, density metrics, detailed collision
+    patterns, and violation statistics for each zoning district.
 
     Parameters
     ----------
@@ -489,19 +763,13 @@ def create_zoning_collision_analysis(
         Collision-to-segment matches with columns ['report_id', 'roadsegid'].
     segment_zoning : pd.DataFrame
         Segment-to-zoning mapping with columns ['roadsegid', 'zone_name', ...].
+    gdf_zoning : gpd.GeoDataFrame
+        Zoning polygons with area calculations.
 
     Returns
     -------
     pd.DataFrame
-        Aggregated statistics by zone with columns:
-        - zone_name
-        - total_crashes
-        - injured
-        - killed
-        - segments_with_crashes
-        - total_segments
-        - crashes_per_segment
-        - crash_rate_pct
+        Comprehensive aggregated statistics by zone including all metrics.
     """
     print("--- Creating Zoning Collision Analysis ---")
     
@@ -546,18 +814,42 @@ def create_zoning_collision_analysis(
         zone_analysis['total_segments'].replace(0, pd.NA)
     ) * 100
     
+    zone_analysis = calculate_zone_density(zone_analysis, gdf_zoning)
+    
+    zone_analysis['zone_type'] = zone_analysis['zone_name'].apply(extract_zone_type)
+    
+    try:
+        df_collisions_detailed = pd.read_csv(FILES['collisions_detailed'], dtype={'report_id': str})
+        detailed_stats = analyze_detailed_collisions_by_zone(
+            df_collisions_detailed,
+            all_matches,
+            segment_zoning
+        )
+        if not detailed_stats.empty:
+            zone_analysis = pd.merge(zone_analysis, detailed_stats, on='zone_name', how='left')
+    except Exception as e:
+        print(f"Warning: Could not load detailed collisions: {e}")
+    
+    violation_stats = analyze_violations_by_zone(df_coll, all_matches, segment_zoning)
+    zone_analysis = pd.merge(zone_analysis, violation_stats, on='zone_name', how='left')
+    
     zone_analysis = zone_analysis.sort_values('total_crashes', ascending=False)
     
     zone_analysis.to_csv(FILES['output_data'], index=False)
     print(f"File saved: {FILES['output_data']}")
     print("\nTop 10 zones by crash count:")
-    display_cols = ['zone_name', 'total_crashes', 'injured', 'killed', 'crashes_per_segment']
+    display_cols = ['zone_name', 'zone_type', 'total_crashes', 'injured', 'killed', 'crashes_per_segment']
     print(zone_analysis[display_cols].head(10).to_string())
+    
+    zone_type_analysis = create_zone_type_analysis(zone_analysis)
+    print("\n--- Zone Type Summary ---")
+    print(zone_type_analysis[['zone_type', 'num_zones', 'total_crashes', 
+                             'crashes_per_zone', 'injury_rate', 'fatality_rate']].to_string())
     
     return zone_analysis
 
 
-def visualize_zoning_collisions(csv_path: Optional[str] = None) -> None:
+def visualize_zoning_collisions(df_zoning: pd.DataFrame) -> None:
     """
     Create visualizations for zoning collision analysis.
 
@@ -565,32 +857,26 @@ def visualize_zoning_collisions(csv_path: Optional[str] = None) -> None:
     - Top zones by total crashes
     - Top zones by crash rate (crashes per segment)
     - Top zones by injuries
-    - Top zones by fatalities
+    - Zone type comparison
+    - Density analysis
 
     Parameters
     ----------
-    csv_path : str, optional
-        Path to the collisions analysis CSV file. If None, uses default output path.
+    df_zoning : pd.DataFrame
+        Zone statistics DataFrame.
     """
-    if csv_path is None:
-        csv_path = FILES['output_data']
-    
-    try:
-        df = pd.read_csv(csv_path)
-    except FileNotFoundError:
-        print(f"Error: Could not find file {csv_path}")
-        return
+    print("--- Creating Visualizations ---")
     
     sns.set_style("whitegrid")
-    plt.rcParams['figure.figsize'] = (14, 10)
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig = plt.figure(figsize=(18, 13))
+    gs = fig.add_gridspec(3, 2, hspace=0.5, wspace=0.3, height_ratios=[1, 1, 1.2])
     fig.suptitle('Traffic Collision Analysis by Zoning District', fontsize=16, fontweight='bold', y=0.995)
     
     top_n = 15
     
     # Top zones by total crashes
-    ax1 = axes[0, 0]
-    top_crashes = df.nlargest(top_n, 'total_crashes')
+    ax1 = fig.add_subplot(gs[0, 0])
+    top_crashes = df_zoning.nlargest(top_n, 'total_crashes')
     bars1 = ax1.barh(range(len(top_crashes)), top_crashes['total_crashes'], 
                      color=sns.color_palette("Blues_r", len(top_crashes)))
     ax1.set_yticks(range(len(top_crashes)))
@@ -603,8 +889,8 @@ def visualize_zoning_collisions(csv_path: Optional[str] = None) -> None:
         ax1.text(val + 20, i, f'{int(val)}', va='center', fontsize=9, fontweight='bold')
     
     # Top zones by crash rate
-    ax2 = axes[0, 1]
-    top_rate = df[df['total_segments'] > 0].nlargest(top_n, 'crashes_per_segment')
+    ax2 = fig.add_subplot(gs[0, 1])
+    top_rate = df_zoning[df_zoning['total_segments'] > 0].nlargest(top_n, 'crashes_per_segment')
     bars2 = ax2.barh(range(len(top_rate)), top_rate['crashes_per_segment'],
                      color=sns.color_palette("Reds_r", len(top_rate)))
     ax2.set_yticks(range(len(top_rate)))
@@ -617,8 +903,8 @@ def visualize_zoning_collisions(csv_path: Optional[str] = None) -> None:
         ax2.text(val + 0.05, i, f'{val:.2f}', va='center', fontsize=9, fontweight='bold')
     
     # Top zones by injuries
-    ax3 = axes[1, 0]
-    top_injured = df.nlargest(top_n, 'injured')
+    ax3 = fig.add_subplot(gs[1, 0])
+    top_injured = df_zoning.nlargest(top_n, 'injured')
     bars3 = ax3.barh(range(len(top_injured)), top_injured['injured'],
                      color=sns.color_palette("Oranges_r", len(top_injured)))
     ax3.set_yticks(range(len(top_injured)))
@@ -630,30 +916,114 @@ def visualize_zoning_collisions(csv_path: Optional[str] = None) -> None:
     for i, (idx, val) in enumerate(zip(top_injured.index, top_injured['injured'])):
         ax3.text(val + 5, i, f'{int(val)}', va='center', fontsize=9, fontweight='bold')
     
-    # Top zones by fatalities
-    ax4 = axes[1, 1]
-    top_killed = df[df['killed'] > 0].nlargest(top_n, 'killed')
-    if len(top_killed) > 0:
-        bars4 = ax4.barh(range(len(top_killed)), top_killed['killed'],
-                         color=sns.color_palette("Reds", len(top_killed)))
-        ax4.set_yticks(range(len(top_killed)))
-        ax4.set_yticklabels(top_killed['zone_name'], fontsize=9)
-        ax4.set_xlabel('Total Fatalities', fontsize=11, fontweight='bold')
-        ax4.set_title(f'Top {top_n} Zones by Fatalities', fontsize=12, fontweight='bold', pad=10)
-        ax4.invert_yaxis()
-        ax4.grid(axis='x', alpha=0.3)
-        for i, (idx, val) in enumerate(zip(top_killed.index, top_killed['killed'])):
-            ax4.text(val + 0.1, i, f'{int(val)}', va='center', fontsize=9, fontweight='bold')
-    else:
-        ax4.text(0.5, 0.5, 'No fatalities recorded', ha='center', va='center', 
-                transform=ax4.transAxes, fontsize=12)
-        ax4.set_title(f'Top {top_n} Zones by Fatalities', fontsize=12, fontweight='bold', pad=10)
+    # Zone type comparison
+    ax4 = fig.add_subplot(gs[1, 1])
+    if 'zone_type' in df_zoning.columns:
+        zone_type_stats = df_zoning.groupby('zone_type').agg({
+            'total_crashes': 'sum',
+            'injured': 'sum',
+            'killed': 'sum'
+        }).reset_index().sort_values('total_crashes', ascending=False)
+        
+        x_pos = np.arange(len(zone_type_stats))
+        width = 0.25
+        
+        bars1 = ax4.bar(x_pos - width, zone_type_stats['total_crashes'], width,
+                       label='Crashes', color='steelblue', alpha=0.8)
+        bars2 = ax4.bar(x_pos, zone_type_stats['injured'], width,
+                       label='Injuries', color='coral', alpha=0.8)
+        bars3 = ax4.bar(x_pos + width, zone_type_stats['killed'], width,
+                       label='Fatalities', color='darkred', alpha=0.8)
+        
+        ax4.set_xlabel('Zone Type', fontsize=11, fontweight='bold')
+        ax4.set_ylabel('Count', fontsize=11, fontweight='bold')
+        ax4.set_title('Collisions by Zone Type Category', fontsize=12, fontweight='bold', pad=10)
+        ax4.set_xticks(x_pos)
+        ax4.set_xticklabels(zone_type_stats['zone_type'], rotation=45, ha='right', fontsize=9)
+        ax4.legend(loc='upper right')
+        ax4.grid(axis='y', alpha=0.3)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.99])
+    # Density analysis
+    ax5 = fig.add_subplot(gs[2, :])
+    if 'crashes_per_km2' in df_zoning.columns:
+        density_data = df_zoning[df_zoning['crashes_per_km2'].notna() & 
+                                 (df_zoning['crashes_per_km2'] > 0)].nlargest(20, 'crashes_per_km2')
+        if len(density_data) > 0:
+            bars = ax5.barh(range(len(density_data)), density_data['crashes_per_km2'],
+                          color=sns.color_palette("YlOrRd", len(density_data)))
+            ax5.set_yticks(range(len(density_data)))
+            ax5.set_yticklabels(density_data['zone_name'], fontsize=8)
+            ax5.set_xlabel('Crashes per km²', fontsize=11, fontweight='bold')
+            ax5.set_title('Top 20 Zones by Crash Density (per km²)', 
+                         fontsize=12, fontweight='bold', pad=10)
+            ax5.invert_yaxis()
+            ax5.grid(axis='x', alpha=0.3)
+            for i, (idx, val) in enumerate(zip(density_data.index, density_data['crashes_per_km2'])):
+                ax5.text(val + 1, i, f'{val:.1f}', va='center', fontsize=8, fontweight='bold')
     
-    output_path = csv_path.replace('.csv', '_visualization.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Visualization saved: {output_path}")
+    plt.tight_layout(rect=[0, 0.02, 1, 0.99])
+    plt.savefig(FILES['output_visualization'], dpi=300, bbox_inches='tight')
+    print(f"Visualization saved: {FILES['output_visualization']}")
+    plt.close()
+
+
+def create_severity_map(
+    df_zoning_stats: pd.DataFrame,
+    gdf_zoning: gpd.GeoDataFrame
+) -> None:
+    """
+    Create a map visualization of zones color-coded by crash severity.
+
+    Parameters
+    ----------
+    df_zoning_stats : pd.DataFrame
+        Zone statistics with severity metrics.
+    gdf_zoning : gpd.GeoDataFrame
+        Zoning polygons with geometry.
+    """
+    print("--- Creating Severity Map ---")
+    
+    gdf_with_stats = gdf_zoning.merge(
+        df_zoning_stats[['zone_name', 'total_crashes', 'injured', 'killed', 'crashes_per_segment']],
+        on='zone_name',
+        how='left'
+    )
+    
+    gdf_with_stats['total_crashes'] = gdf_with_stats['total_crashes'].fillna(0)
+    gdf_with_stats['severity_score'] = (
+        gdf_with_stats['total_crashes'] * 1 +
+        gdf_with_stats['injured'].fillna(0) * 2 +
+        gdf_with_stats['killed'].fillna(0) * 10
+    )
+    
+    fig, ax = plt.subplots(figsize=(16, 12))
+    
+    gdf_with_stats = gdf_with_stats.to_crs('EPSG:4326')
+    
+    gdf_with_stats.plot(
+        column='severity_score',
+        ax=ax,
+        cmap='YlOrRd',
+        legend=True,
+        missing_kwds={'color': 'lightgray'},
+        edgecolor='black',
+        linewidth=0.3,
+        legend_kwds={
+            'label': 'Severity Score (Crashes + 2×Injuries + 10×Fatalities)',
+            'shrink': 0.8,
+            'orientation': 'vertical'
+        }
+    )
+    
+    ax.set_title('Traffic Collision Severity by Zoning District', 
+                fontsize=16, fontweight='bold', pad=20)
+    ax.set_xlabel('Longitude', fontsize=12)
+    ax.set_ylabel('Latitude', fontsize=12)
+    ax.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(FILES['output_map'], dpi=300, bbox_inches='tight')
+    print(f"Severity map saved: {FILES['output_map']}")
     plt.close()
 
 
@@ -670,8 +1040,9 @@ def main() -> None:
     
     if gdf_zoning is not None and gdf_paving_geom is not None:
         segment_zoning = join_segments_to_zoning(gdf_paving_geom, gdf_zoning)
-        create_zoning_collision_analysis(df_coll, all_matches, segment_zoning)
-        visualize_zoning_collisions()
+        zone_analysis = create_zoning_collision_analysis(df_coll, all_matches, segment_zoning, gdf_zoning)
+        visualize_zoning_collisions(zone_analysis)
+        create_severity_map(zone_analysis, gdf_zoning)
     else:
         print("Error: Could not load spatial data. Skipping zoning analysis.")
 
