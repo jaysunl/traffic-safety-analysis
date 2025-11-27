@@ -1,1 +1,6 @@
-nothing here yet
+pandas
+geopandas
+folium
+seaborn
+numpy
+matplotlib

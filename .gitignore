@@ -16,4 +16,6 @@ env/
 .idea/
 
 # ignore large data file(s), currently unused
-roads_datasd.geojson
+
+# https://seshat.datasd.org/gis_roads_all/roads_datasd.geojson
+roads_datasd.geojson 
