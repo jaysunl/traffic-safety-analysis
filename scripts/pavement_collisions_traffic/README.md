@@ -1,1 +1,1 @@
-This readme might describe the stuff in this directory.
+This folder contains analysis and data generation done by Evan.
