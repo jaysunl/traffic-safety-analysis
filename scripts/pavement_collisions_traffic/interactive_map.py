@@ -1,3 +1,7 @@
+"""
+--- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+"""
+
 import pandas as pd
 import folium
 
@@ -73,14 +77,14 @@ def style_roads(feature):
 
     color = PCI_COLOR_MAP.get(pci_desc, "#808080")
 
-    weight = 1.5
+    weight = 3
     if pd.notna(crashes):
         if crashes > 0:
-            weight = 3.0
-        if crashes > 2:
             weight = 5.0
+        if crashes > 2:
+            weight = 7.0
         if crashes > 5:
-            weight = 8.0
+            weight = 10.0
 
     return {"color": color, "weight": weight, "opacity": 1.0}
 

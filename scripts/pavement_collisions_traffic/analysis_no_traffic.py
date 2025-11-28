@@ -1,7 +1,23 @@
+"""
+--- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+"""
+
+import pandas as pd
+from matplotlib.figure import Figure
 from . import analysis_utils
 
 
-def analyze_pavement_safety(df):
+def analyze_pavement_safety(df: pd.DataFrame) -> Figure:
+    """
+    Analyzes pavement safety metrics (crash frequency and severity) per mile
+    for various functional classes of streets, without considering traffic volume.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame containing segment, collision, and PCI data.
+
+    Returns:
+        Figure: A matplotlib Figure object containing the generated plots.
+    """
     # funclass to include
     target_funclasses = [
         "RES CUL DE SAC",

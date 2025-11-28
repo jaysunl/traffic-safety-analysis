@@ -1,8 +1,16 @@
+"""
+--- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+"""
+
 import matplotlib.pyplot as plt
 from matplotlib.container import BarContainer
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 import seaborn as sns
 import textwrap
 import numpy as np
+import pandas as pd
+from typing import List, Union, Tuple, Optional, Callable
 
 PCI_ORDER_BEST_TO_WORST = ["Good", "Satisfactory", "Fair", "Poor", "Very Poor", "Serious", "Failed"]
 
@@ -19,7 +27,10 @@ COLOR = "#000000"
 CUSTOM_PALETTE = "RdYlGn_r"
 
 
-def setup_theme():
+def setup_theme() -> None:
+    """
+    Configures the global seaborn and matplotlib theme settings for consistent plotting.
+    """
     sns.set_theme(
         style="whitegrid",
         rc={
@@ -32,41 +43,97 @@ def setup_theme():
     )
 
 
-def filter_by_funclass(df, target_funclasses):
+def filter_by_funclass(df: pd.DataFrame, target_funclasses: List[str]) -> pd.DataFrame:
+    """
+    Filters the DataFrame to include only rows matching the specified functional classes.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        target_funclasses (List[str]): List of functional class names to keep.
+
+    Returns:
+        pd.DataFrame: A filtered copy of the DataFrame.
+    """
     return df[df["funclass"].isin(target_funclasses)].copy()
 
 
-def wrap_funclass_labels(df, target_funclasses, width=12):
+def wrap_funclass_labels(
+    df: pd.DataFrame, target_funclasses: List[str], width: int = 12
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Wraps long functional class names in the DataFrame and the target list for better display on plots.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame containing a 'funclass' column.
+        target_funclasses (List[str]): List of original functional class names.
+        width (int): Maximum line width for wrapping text.
+
+    Returns:
+        Tuple[pd.DataFrame, List[str]]: The DataFrame with a new 'funclass_wrapped' column,
+                                        and a list of wrapped target class names.
+    """
     wrapper = textwrap.TextWrapper(width=width, break_long_words=False)
     df["funclass_wrapped"] = df["funclass"].apply(wrapper.fill)
     target_funclasses_wrapped = [wrapper.fill(x) for x in target_funclasses]
     return df, target_funclasses_wrapped
 
 
-def aggregate_data(df, group_cols, measure_col):
+def aggregate_data(df: pd.DataFrame, group_cols: Union[str, List[str]], measure_col: str) -> pd.DataFrame:
     """
-    Aggregates crash data summing up the measure_col, total_crashes, injured, and killed.
+    Aggregates crash data by summing up the measure column, total crashes, injured, and killed counts.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        group_cols (Union[str, List[str]]): Column(s) to group by.
+        measure_col (str): The column representing the normalization factor (e.g., length, VMT).
+
+    Returns:
+        pd.DataFrame: An aggregated DataFrame with summed statistics.
     """
     agg_dict = {measure_col: "sum", "total_crashes": "sum", "injured": "sum", "killed": "sum"}
     return df.groupby(group_cols, observed=False).agg(agg_dict).reset_index()
 
 
-def calculate_rates(df, measure_col, crash_col_name="crash_rate", sev_col_name="severity_rate"):
+def calculate_rates(
+    df: pd.DataFrame, measure_col: str, crash_col_name: str = "crash_rate", sev_col_name: str = "severity_rate"
+) -> pd.DataFrame:
     """
-    Calculates crash rate and weighted severity rate based on the measure column.
+    Calculates crash rate and weighted severity rate based on the provided measure column.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame containing aggregated counts.
+        measure_col (str): The column to divide by (normalization factor).
+        crash_col_name (str): Name for the resulting crash rate column.
+        sev_col_name (str): Name for the resulting severity rate column.
+
+    Returns:
+        pd.DataFrame: The DataFrame with added rate columns.
     """
     df[crash_col_name] = df["total_crashes"] / df[measure_col]
     df[sev_col_name] = (df["injured"] + (df["killed"] * 10)) / df[measure_col]
     return df
 
 
-def adjust_ylim(ax):
+def adjust_ylim(ax: Axes) -> None:
+    """
+    Adjusts the y-axis limit of a plot to add some headroom (25%) above the data.
+
+    Args:
+        ax (Axes): The matplotlib Axes object to adjust.
+    """
     ymin, ymax = ax.get_ylim()
     if not np.isnan(ymax) and not np.isinf(ymax):
         ax.set_ylim(ymin, ymax * 1.25)
 
 
-def add_street_size_arrow(fig, top_adjust=0.88):
+def add_street_size_arrow(fig: Figure, top_adjust: float = 0.88) -> None:
+    """
+    Adds a visual arrow annotation to the figure indicating the progression of street sizes.
+
+    Args:
+        fig (Figure): The matplotlib Figure object.
+        top_adjust (float): The top margin adjustment used for layout, to position the arrow correctly.
+    """
     plt.tight_layout()
     plt.subplots_adjust(top=top_adjust)
 
@@ -97,7 +164,28 @@ def add_street_size_arrow(fig, top_adjust=0.88):
     )
 
 
-def plot_analysis(grouped, target_funclasses_wrapped, y_label_freq, y_label_sev, top_adjust=0.88, extra_plot_func=None):
+def plot_analysis(
+    grouped: pd.DataFrame,
+    target_funclasses_wrapped: List[str],
+    y_label_freq: str,
+    y_label_sev: str,
+    top_adjust: float = 0.88,
+    extra_plot_func: Optional[Callable[[Figure], None]] = None,
+) -> Figure:
+    """
+    Generates the standard two-panel analysis plot (Frequency and Severity).
+
+    Args:
+        grouped (pd.DataFrame): Aggregated data containing rates and wrapped labels.
+        target_funclasses_wrapped (List[str]): List of wrapped functional class names for ordering.
+        y_label_freq (str): Label for the frequency y-axis.
+        y_label_sev (str): Label for the severity y-axis.
+        top_adjust (float): Top margin adjustment for layout.
+        extra_plot_func (Optional[Callable[[Figure], None]]): Optional callback to add extra elements to the figure.
+
+    Returns:
+        Figure: The generated matplotlib Figure.
+    """
     setup_theme()
     fig, axes = plt.subplots(2, 1, figsize=(14, 9), sharex=True)
 

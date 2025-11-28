@@ -1,12 +1,24 @@
+"""
+--- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import seaborn as sns
 from . import analysis_utils
 
 
-def compare_analysis_methods(df):
+def compare_analysis_methods(df: pd.DataFrame) -> Figure:
     """
     Generates a comparison of Safety Deviation (Per Mile) vs Safety Deviation (Per VMT).
+    Calculates the percentage difference from the baseline average for specific functional classes.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame containing segment, collision, PCI, and traffic data.
+
+    Returns:
+        Figure: A matplotlib Figure object containing the comparison plots.
     """
 
     # funclass to include

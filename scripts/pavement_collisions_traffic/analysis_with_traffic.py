@@ -1,7 +1,23 @@
+"""
+--- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+"""
+
+import pandas as pd
+from matplotlib.figure import Figure
 from . import analysis_utils
 
 
-def analyze_pavement_safety_vmt(df):
+def analyze_pavement_safety_vmt(df: pd.DataFrame) -> Figure:
+    """
+    Analyzes pavement safety metrics normalized by Vehicle Miles Traveled (VMT).
+    Filters data to only include segments with available traffic counts.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame containing segment, collision, PCI, and traffic data.
+
+    Returns:
+        Figure: A matplotlib Figure object containing the generated plots.
+    """
     # funclass to include
     target_funclasses = [
         "CL 2 LANE SUB-COLLECTOR",

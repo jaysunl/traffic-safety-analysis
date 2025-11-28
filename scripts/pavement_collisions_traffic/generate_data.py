@@ -1,10 +1,14 @@
+"""
+--- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+"""
+
 import pandas as pd
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 from pathlib import Path
 
 
-# Handle file paths for jupyter notebook and running normally
+# Handle file paths for jupyter notebook and running "directly"
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
@@ -27,7 +31,7 @@ FILES = {
 # The timeframe of the PCI analyses is unknown, so we use mid-year "anchor" dates for 2016 and 2023.
 # This means we assume the PCI inspections occured at these specific dates.
 # These anchors can be adjusted as needed.
-ANCHOR_2016 = pd.Timestamp("2016-07-01")  # unknown exact date
+ANCHOR_2016 = pd.Timestamp("2016-07-01")  # unknown exact date (educated guess)
 ANCHOR_2023 = pd.Timestamp("2023-06-01")  # "was completed over the course of several months" in spring 2023
 
 # Analysis date range. Collision data starts circa 2016 and goes to present day.
@@ -199,12 +203,13 @@ def load_traffic_counts() -> pd.DataFrame:
     """
     Loads and cleans traffic count data.
 
-    Parses dates, calculates the average directional count across available
-    directions, and standardizes street names and limits to prepare for matching.
+    Parses dates, calculates traffic volume using directional logic 
+    (axis dominant, summing opposites, or doubling singles), and 
+    standardizes street names and limits.
 
     Returns:
         pd.DataFrame: A DataFrame containing cleaned traffic data with columns for
-                      date, averaged volume, and standardized location limits.
+                      date, calculated volume, and standardized location limits.
     """
     df = pd.read_csv(FILES["traffic_counts"])
 
@@ -212,20 +217,50 @@ def load_traffic_counts() -> pd.DataFrame:
     df["date_count"] = pd.to_datetime(df["date_count"], errors="coerce")
     df = df.dropna(subset=["date_count"])
 
-    # Calculate average directional count
-    # Average only populated columns (ignore empty ones)
+
     dir_cols = ["northbound_count", "southbound_count", "eastbound_count", "westbound_count"]
     for col in dir_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Average of the 4 columns (skips NaNs by default)
-    df["traffic_vol"] = df[dir_cols].mean(axis=1)
+    def calculate_row_volume(row):
+        def get_axis_vol(val1, val2):
+            v1_valid = pd.notna(val1)
+            v2_valid = pd.notna(val2)
+            
+            if v1_valid and v2_valid:
+                # Both directions exist -> Sum them
+                return val1 + val2
+            elif v1_valid:
+                # Only first direction exists -> Double it
+                return val1 * 2
+            elif v2_valid:
+                # Only second direction exists -> Double it
+                return val2 * 2
+            else:
+                # Neither exists
+                return np.nan
+
+        # Calculate North-South and East-West potentials
+        ns_vol = get_axis_vol(row["northbound_count"], row["southbound_count"])
+        ew_vol = get_axis_vol(row["eastbound_count"], row["westbound_count"])
+
+        # Check if both are NaN (no data for this row)
+        if pd.isna(ns_vol) and pd.isna(ew_vol):
+            return np.nan
+
+        # Return the dominant axis
+        return np.nanmax([ns_vol, ew_vol])
+
+    # Apply logic row-by-row
+    df["traffic_vol"] = df.apply(calculate_row_volume, axis=1)
+
+    # Remove rows where volume could not be calculated
+    df = df.dropna(subset=["traffic_vol"])
 
     # Clean street name
     df["clean_street"] = clean_street_name(df["street_name"])
 
     # Clean limits
-    # Limits format is usually "STREET A - STREET B"
     def parse_limits(limit_str):
         if not isinstance(limit_str, str):
             return None, None
@@ -769,7 +804,7 @@ def generate_data():
 
         if sort_by_pci:
             pci_order = {l: i for i, l in enumerate(labels)}
-            # Handle MultiIndex (funclass, pci_desc)
+            # Handle multi-index levels (funclass, pci_desc)
             if isinstance(df.index, pd.MultiIndex):
                 df["pci_rank"] = df.index.map(lambda x: pci_order.get(x[1], 99))
                 df = df.sort_values(["funclass", "pci_rank"]).drop(columns=["pci_rank"])
