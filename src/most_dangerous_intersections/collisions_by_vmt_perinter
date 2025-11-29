@@ -145,16 +145,16 @@ df["crashes_per_million_vmt"] = df["collisions_per_day"] / (df["vmt_day"] / 1e6)
 
 df_clean = df[(df["vmt_day"] > 0) & (df["collisions"] >= 5) & (df["vmt_day"] >= 500)].copy()
 
-print(f"Collision date span: {min_dt.date()} to {max_dt.date()}  ({days_span} days)")
-print(f"Matched exposure for {df['vmt_day'].notna().mean():.1%} of intersections")
+#print(f"Collision date span: {min_dt.date()} to {max_dt.date()}  ({days_span} days)")
+#print(f"Matched exposure for {df['vmt_day'].notna().mean():.1%} of intersections")
 
-print("\nTop 20 by raw collisions:")
-print(df[df["vmt_day"].notna()].sort_values("collisions", ascending=False)
-        .head(20)[["pair_key","collisions","vmt_day","crashes_per_million_vmt"]])
+#print("\nTop 20 by raw collisions:")
+#print(df[df["vmt_day"].notna()].sort_values("collisions", ascending=False)
+#        .head(20)[["pair_key","collisions","vmt_day","crashes_per_million_vmt"]])
 
-print("\nTop 20 by crashes per million VMT (filtered for stability):")
-print(df_clean.sort_values("crashes_per_million_vmt", ascending=False)
-        .head(20)[["pair_key","collisions","vmt_day","crashes_per_million_vmt"]])
+#print("\nTop 20 by crashes per million VMT (filtered for stability):")
+#print(df_clean.sort_values("crashes_per_million_vmt", ascending=False)
+#        .head(20)[["pair_key","collisions","vmt_day","crashes_per_million_vmt"]])
 
 
 TOP_N = 20
@@ -171,9 +171,9 @@ top_rate = (df_clean.sort_values("crashes_per_million_vmt", ascending=False)
             .copy())
 
 def plot_barh(title: str, x_col: str, df_plot: pd.DataFrame, xlabel: str, fname: str):
-    if df_plot.empty:
-        print(f"[plot] No data to plot for: {title}")
-        return
+#    if df_plot.empty:
+#        print(f"[plot] No data to plot for: {title}")
+#        return
 
     # Reverse so the largest appears at the top in barh
     df_plot = df_plot.iloc[::-1]
@@ -189,7 +189,7 @@ def plot_barh(title: str, x_col: str, df_plot: pd.DataFrame, xlabel: str, fname:
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, fname)
     plt.savefig(out_path, dpi=200)
-    print("Saved plot:", out_path)
+#    print("Saved plot:", out_path)
 
     plt.show()
 

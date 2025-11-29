@@ -180,9 +180,9 @@ segs_with_volume = (
               .merge(counts_mean, on="seg_key", how="left")
 )
 
-print("Segments with cross streets:", len(segs_valid))
-print("Matched to at least one count:", segs_with_volume["adt_recent"].notna().sum())
-print("Match rate:", segs_with_volume["adt_recent"].notna().mean())
+#print("Segments with cross streets:", len(segs_valid))
+#print("Matched to at least one count:", segs_with_volume["adt_recent"].notna().sum())
+#print("Match rate:", segs_with_volume["adt_recent"].notna().mean())
 
 
 segs_with_volume["seg_miles"] = pd.to_numeric(segs_with_volume["pav_length"], errors="coerce") / 5280.0
@@ -197,5 +197,5 @@ matched_out = f"{out_dir}/paving_segments_with_traffic_volume.csv"
 matched_only = segs_with_volume[segs_with_volume["adt_recent"].notna()].copy()
 matched_only.to_csv(matched_out, index=False)
 
-print("Saved matched-only output to:", matched_out)
-print("Matched-only rows:", len(matched_only))
+#print("Saved matched-only output to:", matched_out)
+#print("Matched-only rows:", len(matched_only))
