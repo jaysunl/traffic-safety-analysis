@@ -43,6 +43,7 @@ def analyze_pavement_safety_vmt(df: pd.DataFrame) -> Figure:
     df["segment_miles"] = df["pav_length"] / 5280
 
     # Annual VMT = daily traffic * segment length (miles) * 365 Days
+    # traffic_count is daily traffic volume
     df["annual_vmt"] = df["traffic_count"] * df["segment_miles"] * 365
 
     # Text wrapping for funclass labels
@@ -78,6 +79,6 @@ def analyze_pavement_safety_vmt(df: pd.DataFrame) -> Figure:
         target_funclasses_wrapped,
         y_label_freq="Crashes per Million VMT",
         y_label_sev="Severity Index per Million VMT",
-        top_adjust=0.86,
+        top_adjust=0.85,
         extra_plot_func=add_warning,
     )

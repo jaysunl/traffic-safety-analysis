@@ -110,6 +110,8 @@ def calculate_rates(
         pd.DataFrame: The DataFrame with added rate columns.
     """
     df[crash_col_name] = df["total_crashes"] / df[measure_col]
+
+    # Weighted severity: 1 killed = 10 injured
     df[sev_col_name] = (df["injured"] + (df["killed"] * 10)) / df[measure_col]
     return df
 
@@ -141,7 +143,7 @@ def add_street_size_arrow(fig: Figure, top_adjust: float = 0.88) -> None:
 
     arrow_y = 0.93 - offset
     text_y_title = 0.955 - offset
-    text_y_labels = 0.945 - offset
+    text_y_labels = 0.947 - offset
     arrow_x_start = 0.07
     arrow_x_end = 0.85
 
