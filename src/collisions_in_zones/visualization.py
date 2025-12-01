@@ -128,9 +128,7 @@ def visualize_zoning_collisions(df_zoning: pd.DataFrame) -> None:
                 ax5.text(val + 1, i, f'{val:.1f}', va='center', fontsize=8, fontweight='bold')
     
     plt.tight_layout(rect=[0, 0.02, 1, 0.99])
-    plt.savefig(FILES['output_visualization'], dpi=300, bbox_inches='tight')
-    print(f"Visualization saved: {FILES['output_visualization']}")
-    plt.close()
+    plt.show()
 
 
 def create_severity_map(
@@ -188,28 +186,26 @@ def create_severity_map(
     ax.axis('off')
     
     plt.tight_layout()
-    plt.savefig(FILES['output_map'], dpi=300, bbox_inches='tight')
-    print(f"Severity map saved: {FILES['output_map']}")
-    plt.close()
+    plt.show()
 
 
-def create_zone_type_map(output_path: Optional[str] = None) -> None:
+def create_zone_type_map(gdf_zoning: Optional[gpd.GeoDataFrame] = None) -> None:
     """
     Create a map visualization of zones color-coded by general zone type.
     
-    This function loads zoning data, extracts general zone type categories
-    (Residential, Agricultural, Commercial, Industrial, etc.), and generates
-    a color-coded map saved as a PNG file.
+    This function creates a color-coded map of zones by general zone type
+    (Residential, Agricultural, Commercial, Industrial, etc.) and displays it inline.
     
     Parameters
     ----------
-    output_path : str, optional
-        Path to save the output PNG file. If None, uses default path.
+    gdf_zoning : gpd.GeoDataFrame, optional
+        Zoning polygons with geometry. If None, loads from file.
     """
     print("--- Creating Zone Type Map ---")
     
-    # Load zoning data
-    gdf_zoning = load_zoning_data()
+    # Load zoning data if not provided
+    if gdf_zoning is None:
+        gdf_zoning = load_zoning_data()
     
     if gdf_zoning is None:
         print("Error: Could not load zoning data.")
@@ -279,13 +275,8 @@ def create_zone_type_map(output_path: Optional[str] = None) -> None:
         framealpha=0.9
     )
     
-    if output_path is None:
-        output_path = './data/processed/zone_type_map.png'
-    
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Zone type map saved: {output_path}")
-    plt.close()
+    plt.show()
     
     print("\n--- Zone Type Summary ---")
     zone_type_counts = gdf_zoning['general_zone_type'].value_counts()
