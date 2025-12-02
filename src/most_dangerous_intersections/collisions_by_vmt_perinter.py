@@ -191,7 +191,7 @@ def plot_barh(title: str, x_col: str, df_plot: pd.DataFrame, xlabel: str, fname:
     plt.savefig(out_path, dpi=200)
 #    print("Saved plot:", out_path)
 
-    plt.show()
+    #plt.show()
 
 plot_barh(
     title=f"Top {TOP_N} Intersections by Total Collisions ({min_dt.date()} to {max_dt.date()})",
