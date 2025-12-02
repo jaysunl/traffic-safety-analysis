@@ -1,0 +1,415 @@
+"""
+Visualization functions for collisions analysis with zoning.
+"""
+
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+import seaborn as sns
+import numpy as np
+from typing import Optional
+
+from .config import FILES
+from .zone_utils import extract_zone_type, get_general_zone_type
+from .data_loading import load_zoning_data
+import os
+
+
+def load_highways() -> Optional[gpd.GeoDataFrame]:
+    """
+    Load highways and freeways from roads data.
+    
+    Filters roads data to include:
+    - Freeways (FUNCLASS='F' or SEGCLASS='1')
+    - Expressways (FUNCLASS='E' or SEGCLASS='1')
+    - Highways/State Routes (SEGCLASS='2')
+    - Freeway ramps (FUNCLASS='R' or SEGCLASS='8' or '9')
+    
+    Returns
+    -------
+    gpd.GeoDataFrame or None
+        Highways and freeways with line geometries. Returns None if loading fails.
+    """
+    print("--- Loading Highways/Freeways ---")
+    
+    try:
+        roads_geojson_path = './data/raw/roads_lines/roads_datasd.geojson'
+        roads_shp_path = './data/raw/roads_lines/roads_datasd/roads_datasd.shp'
+        
+        if os.path.exists(roads_geojson_path):
+            gdf_roads = gpd.read_file(roads_geojson_path)
+            print(f"Loaded roads from GeoJSON: {len(gdf_roads)} segments")
+        elif os.path.exists(roads_shp_path):
+            gdf_roads = gpd.read_file(roads_shp_path)
+            print(f"Loaded roads from Shapefile: {len(gdf_roads)} segments")
+        else:
+            print(f"Warning: Could not find roads data at {roads_geojson_path} or {roads_shp_path}")
+            return None
+        
+        # Set CRS if not set
+        if gdf_roads.crs is None:
+            gdf_roads.set_crs('EPSG:4326', inplace=True)
+        
+        # Filter for highways/freeways
+        # Based on FUNCLASS: F=Freeway, E=Expressway, R=Freeway/expressway on/off ramp
+        # Based on SEGCLASS: 1=Freeway/Expressway, 2=Highway/State Routes, 8=Freeway Transition Ramp, 9=Freeway On/Off Ramp
+        # Handle case-insensitive column names
+        funclass_col = None
+        segclass_col = None
+        for col in gdf_roads.columns:
+            if col.upper() == 'FUNCLASS':
+                funclass_col = col
+            elif col.upper() == 'SEGCLASS':
+                segclass_col = col
+        
+        highway_mask = pd.Series([False] * len(gdf_roads), index=gdf_roads.index)
+        
+        if funclass_col is not None:
+            highway_mask |= gdf_roads[funclass_col].isin(['F', 'E', 'R', '1'])
+        
+        if segclass_col is not None:
+            segclass_values = ['1', '2', '8', '9', 1, 2, 8, 9]
+            highway_mask |= gdf_roads[segclass_col].isin(segclass_values)
+        
+        if highway_mask.sum() == 0:
+            print("Warning: No highways found with current filter criteria. Trying alternative approach...")
+            # Fallback: try to filter by road name patterns (I-5, I-8, I-15, SR-52, etc.)
+            if 'RD20FULL' in gdf_roads.columns:
+                name_col = 'RD20FULL'
+            elif 'RD30FULL' in gdf_roads.columns:
+                name_col = 'RD30FULL'
+            else:
+                name_col = None
+            
+            if name_col:
+                highway_patterns = ['I-', 'I ', 'SR-', 'SR ', 'HIGHWAY', 'FREEWAY', 'EXPRESSWAY']
+                highway_mask = gdf_roads[name_col].astype(str).str.contains(
+                    '|'.join(highway_patterns), case=False, na=False
+                )
+        
+        gdf_highways = gdf_roads[highway_mask].copy()
+        print(f"Filtered to {len(gdf_highways)} highway/freeway segments")
+        
+        # Reproject to EPSG:4326 for display
+        gdf_highways = gdf_highways.to_crs('EPSG:4326')
+        
+        return gdf_highways
+    except Exception as e:
+        print(f"Error loading highways: {e}")
+        return None
+
+
+def visualize_zoning_collisions(df_zoning: pd.DataFrame) -> None:
+    """
+    Create visualizations for zoning collision analysis.
+
+    Generates bar charts showing:
+    - Top zones by total crashes
+    - Top zones by crash rate (crashes per segment)
+    - Top zones by injuries
+    - Zone type comparison
+    - Density analysis
+
+    Parameters
+    ----------
+    df_zoning : pd.DataFrame
+        Zone statistics DataFrame.
+    """
+    print("--- Creating Visualizations ---")
+    
+    sns.set_style("whitegrid")
+    fig = plt.figure(figsize=(18, 13))
+    gs = fig.add_gridspec(3, 2, hspace=0.5, wspace=0.3, height_ratios=[1, 1, 1.2])
+    fig.suptitle('Traffic Collision Analysis by Zoning District', fontsize=16, fontweight='bold', y=0.995)
+    
+    top_n = 15
+    
+    # Top zones by total crashes
+    ax1 = fig.add_subplot(gs[0, 0])
+    top_crashes = df_zoning.nlargest(top_n, 'total_crashes')
+    bars1 = ax1.barh(range(len(top_crashes)), top_crashes['total_crashes'], 
+                     color=sns.color_palette("Blues_r", len(top_crashes)))
+    ax1.set_yticks(range(len(top_crashes)))
+    ax1.set_yticklabels(top_crashes['zone_name'], fontsize=9)
+    ax1.set_xlabel('Total Crashes', fontsize=11, fontweight='bold')
+    ax1.set_title(f'Top {top_n} Zones by Total Crashes', fontsize=12, fontweight='bold', pad=10)
+    ax1.invert_yaxis()
+    ax1.grid(axis='x', alpha=0.3)
+    for i, (idx, val) in enumerate(zip(top_crashes.index, top_crashes['total_crashes'])):
+        ax1.text(val + 20, i, f'{int(val)}', va='center', fontsize=9, fontweight='bold')
+    
+    # Top zones by crash rate
+    ax2 = fig.add_subplot(gs[0, 1])
+    top_rate = df_zoning[df_zoning['total_segments'] > 0].nlargest(top_n, 'crashes_per_segment')
+    bars2 = ax2.barh(range(len(top_rate)), top_rate['crashes_per_segment'],
+                     color=sns.color_palette("Reds_r", len(top_rate)))
+    ax2.set_yticks(range(len(top_rate)))
+    ax2.set_yticklabels(top_rate['zone_name'], fontsize=9)
+    ax2.set_xlabel('Crashes per Segment', fontsize=11, fontweight='bold')
+    ax2.set_title(f'Top {top_n} Zones by Crash Rate', fontsize=12, fontweight='bold', pad=10)
+    ax2.invert_yaxis()
+    ax2.grid(axis='x', alpha=0.3)
+    for i, (idx, val) in enumerate(zip(top_rate.index, top_rate['crashes_per_segment'])):
+        ax2.text(val + 0.05, i, f'{val:.2f}', va='center', fontsize=9, fontweight='bold')
+    
+    # Top zones by injuries
+    ax3 = fig.add_subplot(gs[1, 0])
+    top_injured = df_zoning.nlargest(top_n, 'injured')
+    bars3 = ax3.barh(range(len(top_injured)), top_injured['injured'],
+                     color=sns.color_palette("Oranges_r", len(top_injured)))
+    ax3.set_yticks(range(len(top_injured)))
+    ax3.set_yticklabels(top_injured['zone_name'], fontsize=9)
+    ax3.set_xlabel('Total Injuries', fontsize=11, fontweight='bold')
+    ax3.set_title(f'Top {top_n} Zones by Total Injuries', fontsize=12, fontweight='bold', pad=10)
+    ax3.invert_yaxis()
+    ax3.grid(axis='x', alpha=0.3)
+    for i, (idx, val) in enumerate(zip(top_injured.index, top_injured['injured'])):
+        ax3.text(val + 5, i, f'{int(val)}', va='center', fontsize=9, fontweight='bold')
+    
+    # Zone type comparison
+    ax4 = fig.add_subplot(gs[1, 1])
+    if 'zone_type' in df_zoning.columns:
+        zone_type_stats = df_zoning.groupby('zone_type').agg({
+            'total_crashes': 'sum',
+            'injured': 'sum',
+            'killed': 'sum'
+        }).reset_index().sort_values('total_crashes', ascending=False)
+        
+        x_pos = np.arange(len(zone_type_stats))
+        width = 0.25
+        
+        bars1 = ax4.bar(x_pos - width, zone_type_stats['total_crashes'], width,
+                       label='Crashes', color='steelblue', alpha=0.8)
+        bars2 = ax4.bar(x_pos, zone_type_stats['injured'], width,
+                       label='Injuries', color='coral', alpha=0.8)
+        bars3 = ax4.bar(x_pos + width, zone_type_stats['killed'], width,
+                       label='Fatalities', color='darkred', alpha=0.8)
+        
+        ax4.set_xlabel('Zone Type', fontsize=11, fontweight='bold')
+        ax4.set_ylabel('Count', fontsize=11, fontweight='bold')
+        ax4.set_title('Collisions by Zone Type Category', fontsize=12, fontweight='bold', pad=10)
+        ax4.set_xticks(x_pos)
+        ax4.set_xticklabels(zone_type_stats['zone_type'], rotation=45, ha='right', fontsize=9)
+        ax4.legend(loc='upper right')
+        ax4.grid(axis='y', alpha=0.3)
+    
+    # Density analysis
+    ax5 = fig.add_subplot(gs[2, :])
+    if 'crashes_per_km2' in df_zoning.columns:
+        density_data = df_zoning[df_zoning['crashes_per_km2'].notna() & 
+                                 (df_zoning['crashes_per_km2'] > 0)].nlargest(20, 'crashes_per_km2')
+        if len(density_data) > 0:
+            bars = ax5.barh(range(len(density_data)), density_data['crashes_per_km2'],
+                          color=sns.color_palette("YlOrRd", len(density_data)))
+            ax5.set_yticks(range(len(density_data)))
+            ax5.set_yticklabels(density_data['zone_name'], fontsize=8)
+            ax5.set_xlabel('Crashes per km²', fontsize=11, fontweight='bold')
+            ax5.set_title('Top 20 Zones by Crash Density (per km²)', 
+                         fontsize=12, fontweight='bold', pad=10)
+            ax5.invert_yaxis()
+            ax5.grid(axis='x', alpha=0.3)
+            for i, (idx, val) in enumerate(zip(density_data.index, density_data['crashes_per_km2'])):
+                ax5.text(val + 1, i, f'{val:.1f}', va='center', fontsize=8, fontweight='bold')
+    
+    plt.tight_layout(rect=[0, 0.02, 1, 0.99])
+    plt.show()
+
+
+def create_severity_map(
+    df_zoning_stats: pd.DataFrame,
+    gdf_zoning: gpd.GeoDataFrame
+) -> None:
+    """
+    Create a map visualization of zones color-coded by crash severity.
+
+    Parameters
+    ----------
+    df_zoning_stats : pd.DataFrame
+        Zone statistics with severity metrics.
+    gdf_zoning : gpd.GeoDataFrame
+        Zoning polygons with geometry.
+    """
+    print("--- Creating Severity Map ---")
+    
+    gdf_with_stats = gdf_zoning.merge(
+        df_zoning_stats[['zone_name', 'total_crashes', 'injured', 'killed', 'crashes_per_segment']],
+        on='zone_name',
+        how='left'
+    )
+    
+    gdf_with_stats['total_crashes'] = gdf_with_stats['total_crashes'].fillna(0)
+    gdf_with_stats['severity_score'] = (
+        gdf_with_stats['total_crashes'] * 1 +
+        gdf_with_stats['injured'].fillna(0) * 2 +
+        gdf_with_stats['killed'].fillna(0) * 10
+    )
+    
+    fig, ax = plt.subplots(figsize=(16, 12))
+    
+    gdf_with_stats = gdf_with_stats.to_crs('EPSG:4326')
+    
+    # Plot zones
+    gdf_with_stats.plot(
+        column='severity_score',
+        ax=ax,
+        cmap='YlOrRd',
+        legend=True,
+        missing_kwds={'color': 'lightgray'},
+        edgecolor='black',
+        linewidth=0.3,
+        legend_kwds={
+            'label': 'Severity Score (Crashes + 2×Injuries + 10×Fatalities)',
+            'shrink': 0.8,
+            'orientation': 'vertical'
+        }
+    )
+    
+    gdf_highways = load_highways()
+    if gdf_highways is not None:
+        # Clip highways to the extent of the zoning data
+        bounds = gdf_with_stats.total_bounds
+        gdf_highways_clipped = gdf_highways.cx[bounds[0]:bounds[2], bounds[1]:bounds[3]]
+        
+        gdf_highways_clipped.plot(
+            ax=ax,
+            color='#2E86AB',  # Blue color for highways
+            linewidth=1.5,
+            alpha=0.8,
+            label='Highways/Freeways'
+        )
+    
+    ax.set_title('Traffic Collision Severity by Zoning District', 
+                fontsize=16, fontweight='bold', pad=20)
+    ax.set_xlabel('Longitude', fontsize=12)
+    ax.set_ylabel('Latitude', fontsize=12)
+    ax.axis('off')
+    
+    if gdf_highways is not None:
+        from matplotlib.lines import Line2D
+        highway_handle = Line2D([0], [0], color='#2E86AB', linewidth=1.5, label='Highways/Freeways')
+        ax.legend(handles=[highway_handle], 
+                 labels=['Highways/Freeways'],
+                 loc='lower right',
+                 frameon=True,
+                 fancybox=True,
+                 shadow=True,
+                 fontsize=10)
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def create_zone_type_map(gdf_zoning: Optional[gpd.GeoDataFrame] = None) -> None:
+    """
+    Create a map visualization of zones color-coded by general zone type.
+    
+    This function creates a color-coded map of zones by general zone type
+    (Residential, Agricultural, Commercial, Industrial, etc.) and displays it inline.
+    
+    Parameters
+    ----------
+    gdf_zoning : gpd.GeoDataFrame, optional
+        Zoning polygons with geometry. If None, loads from file.
+    """
+    print("--- Creating Zone Type Map ---")
+    
+    # Load zoning data if not provided
+    if gdf_zoning is None:
+        gdf_zoning = load_zoning_data()
+    
+    if gdf_zoning is None:
+        print("Error: Could not load zoning data.")
+        return
+    
+    gdf_zoning['zone_type'] = gdf_zoning['zone_name'].apply(extract_zone_type)
+    
+    gdf_zoning['general_zone_type'] = gdf_zoning['zone_type'].apply(get_general_zone_type)
+    
+    zone_type_colors = {
+        'Residential': '#1f78b4',           # Blue
+        'Agricultural': '#ff7f00',          # Orange
+        'Commercial': '#33a02c',            # Green
+        'Industrial': '#e31a1c',            # Red
+        'Mixed Use': '#6a3d9a',             # Purple
+        'Open Space': '#cab2d6',            # Light Purple
+        'Planned Development': '#b15928',   # Brown
+        'Special Purpose': '#8dd3c7',       # Teal
+        'Unknown': '#d9d9d9'                # Gray
+    }
+    
+    gdf_zoning['zone_color'] = gdf_zoning['general_zone_type'].map(zone_type_colors)
+    gdf_zoning['zone_color'] = gdf_zoning['zone_color'].fillna(zone_type_colors['Unknown'])
+    
+    gdf_zoning = gdf_zoning.to_crs('EPSG:4326')
+    
+    fig, ax = plt.subplots(figsize=(16, 12))
+    
+    unique_zone_types = sorted([zt for zt in gdf_zoning['general_zone_type'].unique() 
+                                if pd.notna(zt)])
+    
+    for zone_type in unique_zone_types:
+        zone_data = gdf_zoning[gdf_zoning['general_zone_type'] == zone_type]
+        color = zone_type_colors.get(zone_type, zone_type_colors['Unknown'])
+        zone_data.plot(
+            ax=ax,
+            color=color,
+            edgecolor='black',
+            linewidth=0.3,
+            label=zone_type,
+            alpha=0.7
+        )
+    
+    gdf_highways = load_highways()
+    if gdf_highways is not None:
+        bounds = gdf_zoning.total_bounds
+        gdf_highways_clipped = gdf_highways.cx[bounds[0]:bounds[2], bounds[1]:bounds[3]]
+        
+        gdf_highways_clipped.plot(
+            ax=ax,
+            color='#2E86AB',  # Blue color for highways
+            linewidth=1.5,
+            alpha=0.8,
+            label='Highways/Freeways'
+        )
+    
+    ax.set_title('San Diego Zones', 
+                fontsize=16, fontweight='bold', pad=20)
+    ax.set_xlabel('Longitude', fontsize=12)
+    ax.set_ylabel('Latitude', fontsize=12)
+    ax.axis('off')
+    
+    handles = []
+    labels = []
+    for zone_type in unique_zone_types:
+        color = zone_type_colors.get(zone_type, zone_type_colors['Unknown'])
+        handles.append(Patch(facecolor=color, edgecolor='black', linewidth=0.5, alpha=0.7))
+        labels.append(zone_type)
+    
+    if gdf_highways is not None:
+        from matplotlib.lines import Line2D
+        highway_handle = Line2D([0], [0], color='#2E86AB', linewidth=1.5, label='Highways/Freeways')
+        handles.append(highway_handle)
+        labels.append('Highways/Freeways')
+    
+    ax.legend(
+        handles=handles,
+        labels=labels,
+        title='Zone Type',
+        loc='upper left',
+        frameon=True,
+        fancybox=True,
+        shadow=True,
+        fontsize=10,
+        title_fontsize=12,
+        framealpha=0.9
+    )
+    
+    plt.tight_layout()
+    plt.show()
+    
+    print("\n--- Zone Type Summary ---")
+    zone_type_counts = gdf_zoning['general_zone_type'].value_counts()
+    for zone_type, count in zone_type_counts.items():
+        print(f"{zone_type}: {count} zones")
+
