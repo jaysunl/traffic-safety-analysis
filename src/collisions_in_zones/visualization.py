@@ -13,6 +13,91 @@ from typing import Optional
 from .config import FILES
 from .zone_utils import extract_zone_type, get_general_zone_type
 from .data_loading import load_zoning_data
+import os
+
+
+def load_highways() -> Optional[gpd.GeoDataFrame]:
+    """
+    Load highways and freeways from roads data.
+    
+    Filters roads data to include:
+    - Freeways (FUNCLASS='F' or SEGCLASS='1')
+    - Expressways (FUNCLASS='E' or SEGCLASS='1')
+    - Highways/State Routes (SEGCLASS='2')
+    - Freeway ramps (FUNCLASS='R' or SEGCLASS='8' or '9')
+    
+    Returns
+    -------
+    gpd.GeoDataFrame or None
+        Highways and freeways with line geometries. Returns None if loading fails.
+    """
+    print("--- Loading Highways/Freeways ---")
+    
+    try:
+        roads_geojson_path = './data/raw/roads_lines/roads_datasd.geojson'
+        roads_shp_path = './data/raw/roads_lines/roads_datasd/roads_datasd.shp'
+        
+        if os.path.exists(roads_geojson_path):
+            gdf_roads = gpd.read_file(roads_geojson_path)
+            print(f"Loaded roads from GeoJSON: {len(gdf_roads)} segments")
+        elif os.path.exists(roads_shp_path):
+            gdf_roads = gpd.read_file(roads_shp_path)
+            print(f"Loaded roads from Shapefile: {len(gdf_roads)} segments")
+        else:
+            print(f"Warning: Could not find roads data at {roads_geojson_path} or {roads_shp_path}")
+            return None
+        
+        # Set CRS if not set
+        if gdf_roads.crs is None:
+            gdf_roads.set_crs('EPSG:4326', inplace=True)
+        
+        # Filter for highways/freeways
+        # Based on FUNCLASS: F=Freeway, E=Expressway, R=Freeway/expressway on/off ramp
+        # Based on SEGCLASS: 1=Freeway/Expressway, 2=Highway/State Routes, 8=Freeway Transition Ramp, 9=Freeway On/Off Ramp
+        # Handle case-insensitive column names
+        funclass_col = None
+        segclass_col = None
+        for col in gdf_roads.columns:
+            if col.upper() == 'FUNCLASS':
+                funclass_col = col
+            elif col.upper() == 'SEGCLASS':
+                segclass_col = col
+        
+        highway_mask = pd.Series([False] * len(gdf_roads), index=gdf_roads.index)
+        
+        if funclass_col is not None:
+            highway_mask |= gdf_roads[funclass_col].isin(['F', 'E', 'R', '1'])
+        
+        if segclass_col is not None:
+            segclass_values = ['1', '2', '8', '9', 1, 2, 8, 9]
+            highway_mask |= gdf_roads[segclass_col].isin(segclass_values)
+        
+        if highway_mask.sum() == 0:
+            print("Warning: No highways found with current filter criteria. Trying alternative approach...")
+            # Fallback: try to filter by road name patterns (I-5, I-8, I-15, SR-52, etc.)
+            if 'RD20FULL' in gdf_roads.columns:
+                name_col = 'RD20FULL'
+            elif 'RD30FULL' in gdf_roads.columns:
+                name_col = 'RD30FULL'
+            else:
+                name_col = None
+            
+            if name_col:
+                highway_patterns = ['I-', 'I ', 'SR-', 'SR ', 'HIGHWAY', 'FREEWAY', 'EXPRESSWAY']
+                highway_mask = gdf_roads[name_col].astype(str).str.contains(
+                    '|'.join(highway_patterns), case=False, na=False
+                )
+        
+        gdf_highways = gdf_roads[highway_mask].copy()
+        print(f"Filtered to {len(gdf_highways)} highway/freeway segments")
+        
+        # Reproject to EPSG:4326 for display
+        gdf_highways = gdf_highways.to_crs('EPSG:4326')
+        
+        return gdf_highways
+    except Exception as e:
+        print(f"Error loading highways: {e}")
+        return None
 
 
 def visualize_zoning_collisions(df_zoning: pd.DataFrame) -> None:
@@ -164,6 +249,7 @@ def create_severity_map(
     
     gdf_with_stats = gdf_with_stats.to_crs('EPSG:4326')
     
+    # Plot zones
     gdf_with_stats.plot(
         column='severity_score',
         ax=ax,
@@ -179,11 +265,36 @@ def create_severity_map(
         }
     )
     
+    gdf_highways = load_highways()
+    if gdf_highways is not None:
+        # Clip highways to the extent of the zoning data
+        bounds = gdf_with_stats.total_bounds
+        gdf_highways_clipped = gdf_highways.cx[bounds[0]:bounds[2], bounds[1]:bounds[3]]
+        
+        gdf_highways_clipped.plot(
+            ax=ax,
+            color='#2E86AB',  # Blue color for highways
+            linewidth=1.5,
+            alpha=0.8,
+            label='Highways/Freeways'
+        )
+    
     ax.set_title('Traffic Collision Severity by Zoning District', 
                 fontsize=16, fontweight='bold', pad=20)
     ax.set_xlabel('Longitude', fontsize=12)
     ax.set_ylabel('Latitude', fontsize=12)
     ax.axis('off')
+    
+    if gdf_highways is not None:
+        from matplotlib.lines import Line2D
+        highway_handle = Line2D([0], [0], color='#2E86AB', linewidth=1.5, label='Highways/Freeways')
+        ax.legend(handles=[highway_handle], 
+                 labels=['Highways/Freeways'],
+                 loc='lower right',
+                 frameon=True,
+                 fancybox=True,
+                 shadow=True,
+                 fontsize=10)
     
     plt.tight_layout()
     plt.show()
@@ -249,6 +360,19 @@ def create_zone_type_map(gdf_zoning: Optional[gpd.GeoDataFrame] = None) -> None:
             alpha=0.7
         )
     
+    gdf_highways = load_highways()
+    if gdf_highways is not None:
+        bounds = gdf_zoning.total_bounds
+        gdf_highways_clipped = gdf_highways.cx[bounds[0]:bounds[2], bounds[1]:bounds[3]]
+        
+        gdf_highways_clipped.plot(
+            ax=ax,
+            color='#2E86AB',  # Blue color for highways
+            linewidth=1.5,
+            alpha=0.8,
+            label='Highways/Freeways'
+        )
+    
     ax.set_title('San Diego Zones', 
                 fontsize=16, fontweight='bold', pad=20)
     ax.set_xlabel('Longitude', fontsize=12)
@@ -261,6 +385,12 @@ def create_zone_type_map(gdf_zoning: Optional[gpd.GeoDataFrame] = None) -> None:
         color = zone_type_colors.get(zone_type, zone_type_colors['Unknown'])
         handles.append(Patch(facecolor=color, edgecolor='black', linewidth=0.5, alpha=0.7))
         labels.append(zone_type)
+    
+    if gdf_highways is not None:
+        from matplotlib.lines import Line2D
+        highway_handle = Line2D([0], [0], color='#2E86AB', linewidth=1.5, label='Highways/Freeways')
+        handles.append(highway_handle)
+        labels.append('Highways/Freeways')
     
     ax.legend(
         handles=handles,
