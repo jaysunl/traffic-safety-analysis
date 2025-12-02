@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from datetime import timedelta
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
 
 # Optional import for interactive maps
 try:
@@ -104,9 +103,6 @@ def analyze_pci_improvement(
     - PCI after repair (from 2023 inspection or estimated)
     - Improvement magnitude
     """
-    print("\n" + "="*70)
-    print("Analyzing PCI Improvement from Repairs")
-    print("="*70)
     
     # Merge repair info with PCI data
     repairs_with_pci = repairs_df.merge(
@@ -162,9 +158,6 @@ def analyze_pci_improvement(
 
 def analyze_by_repair_type(repairs_with_pci: pd.DataFrame) -> pd.DataFrame:
     """Analyze effectiveness by repair type (SLURRY, OVERLAY, CONCRETE)."""
-    print("\n" + "="*70)
-    print("Analyzing Effectiveness by Repair Type")
-    print("="*70)
     
     type_analysis = repairs_with_pci.groupby('project_type').agg({
         'pci_improvement': ['mean', 'median', 'count'],
@@ -190,9 +183,6 @@ def analyze_collision_reduction(
     Analyze collision reduction after repairs.
     Compare collision rates before and after repair dates.
     """
-    print("\n" + "="*70)
-    print("Analyzing Collision Reduction After Repairs")
-    print("="*70)
     
     # Get repairs in our analysis window
     repairs_window = repairs_df[
@@ -282,9 +272,6 @@ def analyze_repair_longevity(
     """
     Analyze how long repairs last before significant PCI degradation.
     """
-    print("\n" + "="*70)
-    print("Analyzing Repair Longevity")
-    print("="*70)
     
     # Merge repair and PCI data
     repairs_with_pci = repairs_df.merge(
@@ -345,12 +332,11 @@ def create_simple_plots(
     repairs_with_pci: pd.DataFrame,
     type_analysis: pd.DataFrame,
     collision_df: pd.DataFrame,
-    longevity_df: pd.DataFrame
-) -> None:
+    longevity_df: pd.DataFrame,
+    output_path: Optional[Path] = None
+) -> plt.Figure:
     """Create simple result plots."""
-    print("\n" + "="*70)
-    print("Creating Simple Result Plots")
-    print("="*70)
+
     
     sns.set_theme(style="whitegrid")
     fig = plt.figure(figsize=(16, 12))
@@ -418,19 +404,21 @@ def create_simple_plots(
     
     plt.tight_layout()
     
-    output_path = PROJECT_ROOT / 'data/processed/repair_effectiveness_analysis.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"\nSaved visualization: {output_path}")
-    plt.close()
+    # Only save if output_path is provided
+    if output_path is not None:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"\nSaved visualization: {output_path}")
+        plt.close(fig)
+    # If output_path is None, return the figure without closing (for notebook display)
+    
+    return fig
 
 
 def create_geographic_visualizations(
-    repairs_with_pci: pd.DataFrame
-) -> None:
+    repairs_with_pci: pd.DataFrame,
+    output_path: Optional[Path] = None
+) -> Optional[plt.Figure]:
     """Create geographic visualizations of repairs on map."""
-    print("\n" + "="*70)
-    print("Creating Geographic Visualizations")
-    print("="*70)
     
     try:
         # Load road segment geometries
@@ -455,19 +443,23 @@ def create_geographic_visualizations(
         )
         print(f"Merged {len(repairs_geo)} repairs with geometry")
         
-        # Create static map visualization
-        create_static_repair_map(repairs_geo, zoning_gdf)
+        # Create static map visualization (return figure, don't save)
+        fig = create_static_repair_map(repairs_geo, zoning_gdf, output_path)
         
-        # Create interactive map
-        create_interactive_repair_map(repairs_geo, zoning_gdf)
+        # Skip interactive map for notebook (only create if saving)
+        if output_path is not None:
+            create_interactive_repair_map(repairs_geo, zoning_gdf)
+        
+        return fig
         
     except Exception as e:
         print(f"Error creating geographic visualizations: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 
-def create_static_repair_map(repairs_geo: gpd.GeoDataFrame, zoning_gdf: Optional[gpd.GeoDataFrame]) -> None:
+def create_static_repair_map(repairs_geo: gpd.GeoDataFrame, zoning_gdf: Optional[gpd.GeoDataFrame], output_path: Optional[Path] = None) -> plt.Figure:
     """Create a static matplotlib map of repairs."""
     print("Creating static repair map...")
     
@@ -544,10 +536,14 @@ def create_static_repair_map(repairs_geo: gpd.GeoDataFrame, zoning_gdf: Optional
     
     plt.tight_layout()
     
-    output_path = PROJECT_ROOT / 'data/processed/repair_effectiveness_map.png'
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Saved static map: {output_path}")
-    plt.close()
+    # Only save if output_path is provided
+    if output_path is not None:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved static map: {output_path}")
+        plt.close(fig)
+    # If output_path is None, return the figure without closing (for notebook display)
+    
+    return fig
 
 
 def create_interactive_repair_map(repairs_geo: gpd.GeoDataFrame, zoning_gdf: Optional[gpd.GeoDataFrame]) -> None:
@@ -698,21 +694,23 @@ def create_visualizations(
     repairs_with_pci: pd.DataFrame,
     type_analysis: pd.DataFrame,
     collision_df: pd.DataFrame,
-    longevity_df: pd.DataFrame
-) -> None:
+    longevity_df: pd.DataFrame,
+    save_images: bool = True
+) -> Tuple[plt.Figure, Optional[plt.Figure]]:
     """Create comprehensive visualization of repair effectiveness."""
     # Create simple plots
-    create_simple_plots(repairs_with_pci, type_analysis, collision_df, longevity_df)
+    plots_path = PROJECT_ROOT / 'data/processed/repair_effectiveness_analysis.png' if save_images else None
+    fig1 = create_simple_plots(repairs_with_pci, type_analysis, collision_df, longevity_df, plots_path)
     
     # Create geographic visualizations
-    create_geographic_visualizations(repairs_with_pci)
+    map_path = PROJECT_ROOT / 'data/processed/repair_effectiveness_map.png' if save_images else None
+    fig2 = create_geographic_visualizations(repairs_with_pci, map_path)
+    
+    return fig1, fig2
 
 
 def main():
     """Run the complete repair effectiveness analysis."""
-    print("="*70)
-    print("Street Repair Projects Evaluation Analysis")
-    print("="*70)
     
     # Load data
     repairs_df, yearly_df, pci_2016_df, pci_2023_df = load_data()
@@ -729,8 +727,9 @@ def main():
     # Analyze longevity
     longevity_df = analyze_repair_longevity(repairs_df, yearly_df, pci_2016_df, pci_2023_df)
     
-    # Create visualizations
-    create_visualizations(repairs_with_pci, type_analysis, collision_df, longevity_df)
+    # Create visualizations (save if running standalone)
+    create_visualizations(repairs_with_pci, type_analysis, collision_df, longevity_df, 
+                         save_images=(__name__ == '__main__'))
     
     # Save detailed results
     output_dir = PROJECT_ROOT / 'data/processed'
@@ -742,16 +741,107 @@ def main():
     if len(longevity_df) > 0:
         longevity_df.to_csv(output_dir / 'repair_longevity_analysis.csv', index=False)
     
-    print("\n" + "="*70)
-    print("Analysis Complete!")
-    print("="*70)
-    print(f"\nOutput files saved to: {output_dir}")
-    print("  - repair_effectiveness_analysis.png (visualizations)")
-    print("  - repair_pci_analysis.csv (detailed PCI analysis)")
     if len(collision_df) > 0:
         print("  - repair_collision_analysis.csv (collision reduction analysis)")
     if len(longevity_df) > 0:
         print("  - repair_longevity_analysis.csv (longevity analysis)")
+
+
+def repair_evaluation():
+    """
+    Entry point for notebook.ipynb.
+    
+    Logic:
+    1. Checks if processed data already exists.
+    2. If yes: Loads data, reconstructs lightweight metrics, and generates plots.
+    3. If no: Runs full heavy analysis, saves data, and generates plots.
+    4. Displays plots directly in the notebook.
+    
+    Returns:
+        Tuple of (repairs_with_pci, type_analysis, collision_df, longevity_df)
+    """
+    from IPython.display import display
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    
+    # Define output paths
+    output_dir = PROJECT_ROOT / 'data/processed'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    files = {
+        'pci': output_dir / 'repair_pci_analysis.csv',
+        'collision': output_dir / 'repair_collision_analysis.csv',
+        'longevity': output_dir / 'repair_longevity_analysis.csv'
+    }
+
+
+    # --- BRANCH 1: LOAD EXISTING DATA ---
+    if files['pci'].exists():
+        print("Loading data and regenerating visualizations...")
+        
+        # Load main dataset
+        repairs_with_pci = pd.read_csv(files['pci'])
+        
+        # Re-run lightweight aggregation for plotting (usually fast)
+        # We need this because type_analysis is usually a derived aggregate, not a raw file
+        type_analysis = analyze_by_repair_type(repairs_with_pci)
+        
+        # Load optional datasets if they exist
+        if files['collision'].exists():
+            collision_df = pd.read_csv(files['collision'])
+        else:
+            collision_df = pd.DataFrame()
+            
+        if files['longevity'].exists():
+            longevity_df = pd.read_csv(files['longevity'])
+        else:
+            longevity_df = pd.DataFrame()
+
+    # --- BRANCH 2: RUN FRESH ANALYSIS ---
+    else:
+        print("[INFO] No existing analysis found. Running full processing...")
+        
+        # Load raw data
+        repairs_df, yearly_df, pci_2016_df, pci_2023_df = load_data()
+        
+        # Run Analysis Steps
+        repairs_with_pci = analyze_pci_improvement(repairs_df, yearly_df, pci_2016_df, pci_2023_df)
+        type_analysis = analyze_by_repair_type(repairs_with_pci)
+        collision_df = analyze_collision_reduction(repairs_df, yearly_df)
+        longevity_df = analyze_repair_longevity(repairs_df, yearly_df, pci_2016_df, pci_2023_df)
+        
+        # Save Results
+        print(f"Saving results to {output_dir}...")
+        repairs_with_pci.to_csv(files['pci'], index=False)
+        
+        if not collision_df.empty:
+            collision_df.to_csv(files['collision'], index=False)
+        
+        if not longevity_df.empty:
+            longevity_df.to_csv(files['longevity'], index=False)
+
+    # --- VISUALIZATION & DISPLAY (Common to both branches) ---
+    print("Generating visualizations...")
+    
+    # Generate figures (ensure save_images=False so we just get objects)
+    fig1, fig2 = create_visualizations(
+        repairs_with_pci, 
+        type_analysis, 
+        collision_df, 
+        longevity_df, 
+        save_images=False
+    )
+
+    # Explicitly display in Notebook
+    if fig1:
+        display(fig1)
+        plt.close(fig1) # Good practice to close after display
+        
+    if fig2:
+        display(fig2)
+        plt.close(fig2)
+
+    return repairs_with_pci, type_analysis, collision_df, longevity_df
 
 
 if __name__ == "__main__":

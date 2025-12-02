@@ -17,7 +17,6 @@ import pandas as pd
 import numpy as np
 import geopandas as gpd
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
@@ -56,9 +55,6 @@ def load_data() -> Tuple[gpd.GeoDataFrame, pd.DataFrame]:
     Returns:
         Tuple of (segments_gdf, segments_data)
     """
-    print("="*70)
-    print("Loading Data")
-    print("="*70)
     
     # Load segment geometries
     print("Loading segment geometries...")
@@ -317,8 +313,8 @@ def create_hotspot_map(
     segment_stats: pd.DataFrame,
     dbscan_results: pd.DataFrame,
     gi_results: pd.DataFrame,
-    output_path: Path
-) -> None:
+    output_path: Optional[Path] = None
+) -> plt.Figure:
     """
     Create a comprehensive map visualization of hotspots.
     
@@ -329,9 +325,6 @@ def create_hotspot_map(
         gi_results: DataFrame with Getis-Ord Gi* results
         output_path: Path to save the map
     """
-    print("\n" + "="*70)
-    print("Creating Hotspot Map Visualization")
-    print("="*70)
     
     # Merge all data
     segments_merged = segments_gdf.merge(
@@ -500,9 +493,15 @@ def create_hotspot_map(
     ax4.axis('off')
     
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"Saved map: {output_path}")
-    plt.close()
+    
+    # Only save if output_path is provided
+    if output_path is not None:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"Saved map: {output_path}")
+        plt.close(fig)
+    # If output_path is None, return the figure without closing (for notebook display)
+    
+    return fig
 
 
 def main():
@@ -552,19 +551,75 @@ def main():
             )[['iamfloc', 'total_crashes', 'injured', 'killed', 'avg_pci', 'gi_star']]
             print(top_hotspots.to_string(index=False))
     
-    # Create map visualization
+    # Create map visualization (save if running standalone)
     create_hotspot_map(
         segments_gdf,
         segment_stats,
         dbscan_results,
         gi_results,
-        FILES['output_map']
+        FILES['output_map'] if __name__ == '__main__' else None
     )
     
     print("\n" + "="*70)
     print("Analysis Complete!")
     print("="*70)
 
+
+def geographic_hotspot_analysis():
+    """
+    Entry point for notebook.ipynb.
+    Checks if output CSV exists to skip processing.
+    Returns figure and summary dataframe.
+    """
+
+    # 1. Always load geometry and base stats (needed for map visualization)
+    segments_gdf, segment_stats = load_data()
+
+    output_path = FILES['output_hotspots']
+
+    # 2. Check if results already exist
+    if output_path.exists():
+        # Load the existing results
+        hotspot_summary = pd.read_csv(output_path)
+        
+        # Reconstruct the inputs required for the map function from the loaded CSV
+        # We assume the CSV contains the columns 'cluster_id', 'gi_star', etc.
+        dbscan_results = hotspot_summary[['iamfloc', 'cluster_id']].copy()
+        gi_results = hotspot_summary[['iamfloc', 'gi_star', 'is_hotspot', 'is_coldspot']].copy()
+        
+    else:
+        # Perform DBSCAN clustering
+        dbscan_results = perform_dbscan_clustering(segments_gdf, segment_stats, 'total_crashes')
+
+        # Perform Getis-Ord Gi* analysis
+        gi_results = calculate_getis_ord_gi(segments_gdf, segment_stats, 'total_crashes')
+
+        # Combine results for saving
+        if not dbscan_results.empty and not gi_results.empty:
+            hotspot_summary = segment_stats.merge(
+                dbscan_results[['iamfloc', 'cluster_id']],
+                on='iamfloc',
+                how='left'
+            ).merge(
+                gi_results[['iamfloc', 'gi_star', 'is_hotspot', 'is_coldspot']],
+                on='iamfloc',
+                how='left'
+            )
+            
+            # Save results
+            hotspot_summary.to_csv(output_path, index=False)
+            hotspot_summary = pd.DataFrame()
+
+    # 3. Create map visualization (Return figure, don't save to disk)
+    fig = create_hotspot_map(
+        segments_gdf,
+        segment_stats,     # Base stats from load_data
+        dbscan_results,    # Derived from CSV or fresh analysis
+        gi_results,        # Derived from CSV or fresh analysis
+        output_path=None   # None = Return object for notebook display
+    )
+
+    return fig, hotspot_summary
 
 if __name__ == '__main__':
     main()
