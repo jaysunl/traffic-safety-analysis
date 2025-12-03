@@ -101,6 +101,10 @@ def generate_map_for_year(df, roads_geo, zoning_geo, target_year):
     """
     # Add category column to zoning
     zoning_geo = zoning_geo.copy()
+
+    for col in zoning_geo.select_dtypes(include=['datetime', 'datetime64', 'datetimetz']).columns:
+        zoning_geo[col] = zoning_geo[col].astype(str)
+
     zoning_geo["category"] = zoning_geo["zone_name"].apply(get_zone_category)
 
     # Initialize Map
