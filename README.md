@@ -44,11 +44,11 @@ These are also listed in `requirements.txt`.
 
 This data can found on the City of San Diego's data portal:
 
-[https://data.sandiego.gov/datasets/police-collisions-details/](https://data.sandiego.gov/datasets/police-collisions-details/)
-[https://data.sandiego.gov/datasets/police-collisions/](https://data.sandiego.gov/datasets/police-collisions/)
-[https://data.sandiego.gov/datasets/zoning/](https://data.sandiego.gov/datasets/zoning/)
-[https://data.sandiego.gov/datasets/traffic-volumes/](https://data.sandiego.gov/datasets/traffic-volumes/)
-[https://data.sandiego.gov/datasets/roads-lines/](https://data.sandiego.gov/datasets/roads-lines/)
-[https://data.sandiego.gov/datasets/streets-repair-segments/](https://data.sandiego.gov/datasets/streets-repair-segments/)
-[https://data.sandiego.gov/datasets/streets-overall-condition-index/](https://data.sandiego.gov/datasets/streets-overall-condition-index/)
-[https://data.sandiego.gov/datasets/streets-repair-projects/](https://data.sandiego.gov/datasets/streets-repair-projects/)
+- [https://data.sandiego.gov/datasets/police-collisions-details/](https://data.sandiego.gov/datasets/police-collisions-details/)
+- [https://data.sandiego.gov/datasets/police-collisions/](https://data.sandiego.gov/datasets/police-collisions/)
+- [https://data.sandiego.gov/datasets/zoning/](https://data.sandiego.gov/datasets/zoning/)
+- [https://data.sandiego.gov/datasets/traffic-volumes/](https://data.sandiego.gov/datasets/traffic-volumes/)
+- [https://data.sandiego.gov/datasets/roads-lines/](https://data.sandiego.gov/datasets/roads-lines/)
+- [https://data.sandiego.gov/datasets/streets-repair-segments/](https://data.sandiego.gov/datasets/streets-repair-segments/)
+- [https://data.sandiego.gov/datasets/streets-overall-condition-index/](https://data.sandiego.gov/datasets/streets-overall-condition-index/)
+- [https://data.sandiego.gov/datasets/streets-repair-projects/](https://data.sandiego.gov/datasets/streets-repair-projects/)
