@@ -34,6 +34,8 @@ seaborn
 numpy
 matplotlib
 ipykernel
+scikit-learn
+scipy
 ```
 
 These are also listed in `requirements.txt`.
