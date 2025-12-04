@@ -1,5 +1,5 @@
 """
---- DETAILED DESCRIPTION IN README.md (scripts/pavement_collisions_traffic/README.md) ---
+--- DETAILED DESCRIPTION IN README.md (src/pavement_collisions_traffic/README.md) ---
 """
 
 import pandas as pd
